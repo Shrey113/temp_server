@@ -1,75 +1,53 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // Allow all origins; adjust for production
-  }
+    origin: '*', // allow your React app's origin
+    methods: ['GET', 'POST'],
+  },
 });
-const users = new Map(); // Store users by socket ID
-// Simple route for server health check
+
+// Apply CORS middleware
+app.use(cors());
+
 app.get('/', (req, res) => {
-  res.send('Server is running');
+  res.send('WebRTC signaling server is running');
 });
 
-
+// Handle socket connections
 io.on('connection', (socket) => {
-    socket.on('registerUser', (email) => {
-      users.set(socket.id, email);
-      io.emit('updateUserList', Array.from(users.values()));
-    });
-  
-    socket.on('disconnect', () => {
-      users.delete(socket.id);
-      io.emit('updateUserList', Array.from(users.values()));
-    });
-  
-    socket.on('callUser', ({ to, from, offer }) => {
-      const recipientSocketId = Array.from(users.keys()).find(id => users.get(id) === to);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('incomingCall', { from });
-        io.to(recipientSocketId).emit('offer', { from, offer });
-      }
-    });
-  
-    socket.on('answer', ({ to, answer }) => {
-      const callerSocketId = Array.from(users.keys()).find(id => users.get(id) === to);
-      if (callerSocketId) {
-        io.to(callerSocketId).emit('answer', { answer });
-      }
-    });
-  
-    socket.on('iceCandidate', ({ to, candidate }) => {
-      const recipientSocketId = Array.from(users.keys()).find(id => users.get(id) === to);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('iceCandidate', { candidate });
-      }
-    });
+  console.log('New client connected:', socket.id);
 
-    
+  // Handle offer event
+  socket.on('offer', (data) => {
+    console.log('Offer received:', data);
+    socket.broadcast.emit('offer', data); // Send offer to the other peer
   });
 
-  const os = require('os');
-  function getLocalIP() {
-    const interfaces = os.networkInterfaces();
-    for (const interfaceName in interfaces) {
-        for (const net of interfaces[interfaceName]) {
-            // Check if the interface is an IPv4 address and is not a loopback
-            if (net.family === 'IPv4' && !net.internal) {
-                return net.address
-            }
-        }
-    }
-  }
+  // Handle answer event
+  socket.on('answer', (data) => {
+    console.log('Answer received:', data);
+    socket.broadcast.emit('answer', data); // Send answer to the other peer
+  });
 
+  // Handle ICE candidates
+  socket.on('ice-candidate', (data) => {
+    console.log('ICE candidate received:', data);
+    socket.broadcast.emit('ice-candidate', data); // Send ICE candidate to the other peer
+  });
 
-const PORT = 4000;
-const HOST = '0.0.0.0';
-server.listen(PORT,HOST, () => {
-  console.log(`\nServer running at \n`);
-  console.log(`\tLocal:            http://localhost:${PORT}`);
-  console.log(`\tOn Your Network:  http://${getLocalIP()}:${PORT}\n`);
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
+// Start the server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
